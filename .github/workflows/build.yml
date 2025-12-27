@@ -1,0 +1,196 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # Important for git describe/tag counting
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Setup NuGet
+      uses: NuGet/setup-nuget@v2
+
+    - name: Install NSIS
+      run: |
+        choco install nsis
+        # Add NSIS to PATH just in case choco doesn't refresh env immediately for shell
+        echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
+
+    - name: Restore NuGet packages
+      run: nuget restore src/OnTopReplica.sln
+
+    - name: Configure VS Installer Projects (Registry)
+      run: |
+        # Use vswhere to find the Visual Studio Instance and set the registry key manually
+        $vsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+        
+        # Get Instance ID
+        $instanceId = & $vsWhere -latest -products * -requires Microsoft.VisualStudio.Component.VslsVsWebTools -property instanceId
+        if (-not $instanceId) {
+             # Fallback query
+             $instanceId = & $vsWhere -latest -products * -property instanceId
+        }
+        
+        # Get Version (Major)
+        $installationVersion = & $vsWhere -latest -products * -property installationVersion
+        if ($installationVersion) {
+            $majorVersion = $installationVersion.Split('.')[0] + ".0"
+        } else {
+            $majorVersion = "17.0" # Default to 2022 if detection fails
+        }
+        
+        Write-Host "Detected VS InstanceID: $instanceId"
+        Write-Host "Detected VS Version: $majorVersion"
+        
+        # 1. Set key with Instance ID (VS 2017+ style)
+        if ($instanceId) {
+            $regPath = "HKCU:\Software\Microsoft\VisualStudio\${majorVersion}_${instanceId}_Config\MSBuild"
+            Write-Host "Setting registry key at: $regPath"
+            
+            if (-not (Test-Path $regPath)) {
+                New-Item -Path $regPath -Force | Out-Null
+            }
+            Set-ItemProperty -Path $regPath -Name "EnableOutOfProcBuild" -Value 0 -Force
+        }
+        
+        # 2. Set key without Instance ID (Global/Legacy style)
+        $legacyPath = "HKCU:\Software\Microsoft\VisualStudio\${majorVersion}_Config\MSBuild"
+        Write-Host "Setting legacy registry key at: $legacyPath"
+        if (-not (Test-Path $legacyPath)) {
+             New-Item -Path $legacyPath -Force | Out-Null
+        }
+        Set-ItemProperty -Path $legacyPath -Name "EnableOutOfProcBuild" -Value 0 -Force
+
+    - name: Generate Version Information
+      id: versioning
+      shell: pwsh
+      run: |
+        # 1. Get Base Version from update.xml
+        $updateXmlPath = "Installer/update.xml"
+        $content = Get-Content $updateXmlPath -Raw
+        if ($content -match '<latestVersion>([\d\.]+)</latestVersion>') {
+             $baseVersion = $matches[1]
+        } else {
+             Write-Error "Could not find latestVersion in $updateXmlPath"
+             exit 1
+        }
+        
+        Write-Host "Found Base Version: $baseVersion"
+        
+        # Remove trailing .0 if present to match 3.5.1 style if needed
+        if ($baseVersion.EndsWith(".0")) {
+            $baseVersion = $baseVersion.Substring(0, $baseVersion.LastIndexOf("."))
+        }
+        Write-Host "Base Version (Short): $baseVersion"
+
+        # 2. Get Date
+        $dateStr = Get-Date -Format "yyyyMMdd"
+        
+        # 3. Calculate Daily Build Count
+        $tagPrefix = "v$baseVersion-$dateStr"
+        $existingTags = git tag -l "$tagPrefix*"
+        
+        $maxCount = 0
+        foreach ($tag in $existingTags) {
+            # Format: v3.5.1-2025122801
+            # We want the last 2 digits
+            if ($tag -match "$tagPrefix(\d{2})") {
+                $count = [int]$matches[1]
+                if ($count -gt $maxCount) {
+                    $maxCount = $count
+                }
+            }
+        }
+        
+        $nextCount = $maxCount + 1
+        $nextCountStr = $nextCount.ToString("00")
+        
+        $fullVersion = "v$baseVersion-$dateStr$nextCountStr"
+        Write-Host "New Version: $fullVersion"
+        
+        # Set output variables
+        echo "version=$fullVersion" >> $env:GITHUB_OUTPUT
+        echo "date=$dateStr" >> $env:GITHUB_OUTPUT
+
+    - name: Locate Devenv
+      id: locate_devenv
+      shell: pwsh
+      run: |
+        $devEnv = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\devenv.com"
+        if (-not (Test-Path $devEnv)) {
+             $devEnv = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\devenv.com"
+        }
+        if (-not (Test-Path $devEnv)) {
+             Write-Error "Could not find devenv.com"
+             exit 1
+        }
+        echo "DEVENV_PATH=$devEnv" >> $env:GITHUB_ENV
+        Write-Host "Found Devenv at $devEnv"
+
+    - name: Build MSI (VS Installer Project)
+      shell: cmd
+      run: |
+        "%DEVENV_PATH%" "src\OnTopReplica.sln" /Build Release /Project Installer
+
+
+    - name: Build EXE (NSIS)
+      run: |
+        # Compile the NSIS script
+        makensis Installer/script.nsi
+
+    - name: Prepare Artifacts
+      run: |
+        mkdir release_artifacts
+        
+        # Copy MSI from VS Installer Project output
+        # User confirmed location: src/Installer/output/OnTopReplica.msi
+        if (Test-Path "src/Installer/output/OnTopReplica.msi") {
+            Copy-Item "src/Installer/output/OnTopReplica.msi" -Destination "release_artifacts/OnTopReplica-Setup.msi"
+        } else {
+            Write-Warning "MSI file not found at src/Installer/output/OnTopReplica.msi"
+        }
+        
+        # Copy EXE from NSIS build
+        # The script outputs to "OnTopReplica-Setup.exe" relative to script run location or predefined in script
+        # We ran makensis on Installer/script.nsi
+        # Let's verify commonly expected location
+        $nsisExe = "Installer/OnTopReplica-Setup.exe"
+        if (Test-Path $nsisExe) {
+             Copy-Item $nsisExe -Destination "release_artifacts/OnTopReplica-Setup.exe"
+        } elseif (Test-Path "OnTopReplica-Setup.exe") {
+             Copy-Item "OnTopReplica-Setup.exe" -Destination "release_artifacts/OnTopReplica-Setup.exe"
+        } else {
+             Write-Warning "NSIS EXE file not found!"
+        }
+        
+        # Create Zip
+        $zipName = "OnTopReplica-${{ steps.versioning.outputs.version }}.zip"
+        Compress-Archive -Path "release_artifacts/*" -DestinationPath $zipName
+        
+        # Output zip path for next step
+        echo "zip_path=$zipName" >> $env:GITHUB_OUTPUT
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.versioning.outputs.version }}
+        name: ${{ steps.versioning.outputs.version }}
+        files: |
+          ${{ steps.versioning.outputs.zip_path }}
+          release_artifacts/OnTopReplica-Setup.exe
+          release_artifacts/OnTopReplica-Setup.msi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
