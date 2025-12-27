@@ -75,6 +75,7 @@
             this.menuModeFullscreenToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.menuModeAllScreensToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.enableClickthroughToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.duplicateToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.fullExitToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.menuContext.SuspendLayout();
             this.menuWindows.SuspendLayout();
@@ -95,12 +96,13 @@
             this.dockToolStripMenuItem,
             this.chromeToolStripMenuItem,
             this.reduceToIconToolStripMenuItem,
+            this.duplicateToolStripMenuItem,
             this.toolStripSeparator1,
             this.settingsToolStripMenuItem,
             this.aboutToolStripMenuItem,
             this.menuContextClose});
             this.menuContext.Name = "menuContext";
-            this.menuContext.Size = new System.Drawing.Size(187, 274);
+            this.menuContext.Size = new System.Drawing.Size(187, 296);
             this.menuContext.Opening += new System.ComponentModel.CancelEventHandler(this.Menu_opening);
             // 
             // menuContextWindows
@@ -443,6 +445,13 @@
             this.menuContextClose.Text = global::OnTopReplica.Strings.MenuClose;
             this.menuContextClose.Click += new System.EventHandler(this.Menu_Close_click);
             // 
+            // duplicateToolStripMenuItem
+            // 
+            this.duplicateToolStripMenuItem.Name = "duplicateToolStripMenuItem";
+            this.duplicateToolStripMenuItem.Size = new System.Drawing.Size(186, 22);
+            this.duplicateToolStripMenuItem.Text = "Duplicate";
+            this.duplicateToolStripMenuItem.Click += new System.EventHandler(this.Menu_Duplicate_click);
+            // 
             // fullOpacityToolStripMenuItem
             // 
             this.fullOpacityToolStripMenuItem.DropDown = this.menuOpacity;
@@ -596,6 +605,7 @@
         private System.Windows.Forms.ToolStripMenuItem menuModeStandardToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem menuModeFullscreenToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem menuModeAllScreensToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem duplicateToolStripMenuItem;
     }
 }
 
