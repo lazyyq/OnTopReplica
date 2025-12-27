@@ -23,11 +23,6 @@ jobs:
     - name: Setup NuGet
       uses: NuGet/setup-nuget@v2
 
-    - name: Install NSIS
-      run: |
-        choco install nsis
-        # Add NSIS to PATH just in case choco doesn't refresh env immediately for shell
-        echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
 
     - name: Restore NuGet packages
       run: nuget restore src/OnTopReplica.sln
@@ -146,34 +141,25 @@ jobs:
         "%DEVENV_PATH%" "src\OnTopReplica.sln" /Build Release /Project Installer
 
 
-    - name: Build EXE (NSIS)
-      run: |
-        # Compile the NSIS script
-        makensis Installer/script.nsi
 
+    
     - name: Prepare Artifacts
       run: |
         mkdir release_artifacts
         
         # Copy MSI from VS Installer Project output
-        # User confirmed location: src/Installer/output/OnTopReplica.msi
         if (Test-Path "src/Installer/output/OnTopReplica.msi") {
             Copy-Item "src/Installer/output/OnTopReplica.msi" -Destination "release_artifacts/OnTopReplica-Setup.msi"
         } else {
             Write-Warning "MSI file not found at src/Installer/output/OnTopReplica.msi"
         }
         
-        # Copy EXE from NSIS build
-        # The script outputs to "OnTopReplica-Setup.exe" relative to script run location or predefined in script
-        # We ran makensis on Installer/script.nsi
-        # Let's verify commonly expected location
-        $nsisExe = "Installer/OnTopReplica-Setup.exe"
-        if (Test-Path $nsisExe) {
-             Copy-Item $nsisExe -Destination "release_artifacts/OnTopReplica-Setup.exe"
-        } elseif (Test-Path "OnTopReplica-Setup.exe") {
-             Copy-Item "OnTopReplica-Setup.exe" -Destination "release_artifacts/OnTopReplica-Setup.exe"
+        # Copy VS Bootstrapper (setup.exe)
+        # Location: src/Installer/output/setup.exe
+        if (Test-Path "src/Installer/output/setup.exe") {
+             Copy-Item "src/Installer/output/setup.exe" -Destination "release_artifacts/setup.exe"
         } else {
-             Write-Warning "NSIS EXE file not found!"
+             Write-Warning "setup.exe not found at src/Installer/output/setup.exe"
         }
         
         # Create Zip
@@ -190,7 +176,7 @@ jobs:
         name: ${{ steps.versioning.outputs.version }}
         files: |
           ${{ steps.versioning.outputs.zip_path }}
-          release_artifacts/OnTopReplica-Setup.exe
+          release_artifacts/setup.exe
           release_artifacts/OnTopReplica-Setup.msi
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
