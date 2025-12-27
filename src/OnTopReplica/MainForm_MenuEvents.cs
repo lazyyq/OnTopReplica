@@ -199,49 +199,10 @@ namespace OnTopReplica {
         }
 
         private void Menu_Duplicate_click(object sender, EventArgs e) {
-            var sb = new System.Text.StringBuilder();
-
-            // Window ID
-            if (CurrentThumbnailWindowHandle != null) {
-                sb.AppendFormat("--windowId={0} ", CurrentThumbnailWindowHandle.Handle.ToInt64());
-            }
-
-            // Region
-            var region = _thumbnailPanel.SelectedRegion;
-            if (region != null) {
-                if (region.Relative) {
-                    var p = region.BoundsAsPadding;
-                    sb.AppendFormat("--padding={0},{1},{2},{3} ", p.Left, p.Top, p.Right, p.Bottom);
-                }
-                else {
-                    var r = region.Bounds;
-                    sb.AppendFormat("--region={0},{1},{2},{3} ", r.X, r.Y, r.Width, r.Height);
-                }
-            }
-
-            // Opacity
-            sb.AppendFormat("--opacity={0} ", (byte)(this.Opacity * 255));
-
-            // Flags
-            if (!IsChromeVisible) sb.Append("--chromeOff ");
-            if (ClickForwardingEnabled) sb.Append("--clickForwarding ");
-            if (ClickThroughEnabled) sb.Append("--clickThrough ");
-            if (FullscreenManager.IsFullscreen) sb.Append("--fullscreen ");
-
-            // Position & Size
-            if (PositionLock.HasValue) {
-                sb.AppendFormat("--screenPosition={0} ", PositionLock.Value);
-            }
-            else {
-                // Offset new window slightly
-                var loc = this.Location;
-                loc.Offset(30, 30);
-                sb.AppendFormat("--position={0},{1} ", loc.X, loc.Y);
-                sb.AppendFormat("--size={0},{1} ", this.ClientSize.Width, this.ClientSize.Height);
-            }
-
             try {
-                System.Diagnostics.Process.Start(Application.ExecutablePath, sb.ToString());
+                var options = StartupOptions.Options.CreateFromForm(this);
+                var args = options.ToCommandLineArguments();
+                System.Diagnostics.Process.Start(Application.ExecutablePath, args);
             }
             catch (Exception ex) {
                 MessageBox.Show(this, "Failed to duplicate window: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
